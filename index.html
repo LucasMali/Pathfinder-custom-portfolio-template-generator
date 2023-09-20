@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Konva Image Loader</title>
+    <!-- Include Konva library -->
+    <script src="https://cdn.jsdelivr.net/npm/konva@9.2.1/konva.min.js"></script>
+    <!-- Include JSZip and FileSaver.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.6.0/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+    <style>
+      .container-wrapper {
+        text-align: center;
+        transform: scale(0.6); /* Adjust the scale factor as needed */
+        transform-origin: top left; /* Set the origin point for scaling */
+      }
+
+      /* Adjust padding within the container */
+      .stage-container {
+        display: inline-block;
+        margin: 20px; /* Adjust the margin as needed */
+        padding: 10px; /* Adjust the padding as needed */
+        background: darkgrey;
+      }
+      .border-animation {
+        width: 100%;
+        height: 100%;
+        border: 2px solid transparent; /* Set a transparent border */
+        position: relative;
+        animation: borderAnimation 3s infinite; /* Apply the animation */
+      }
+      @keyframes borderAnimation {
+        0% {
+          border-color: #3498db; /* Start color */
+        }
+        50% {
+          border-color: #e74c3c; /* Mid color */
+        }
+        100% {
+          border-color: #3498db; /* End color */
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <input
+      type="file"
+      accept="image/*"
+      id="imageInput"
+      onchange="loadImage()"
+    />
+    <button onclick="saveImages()">Save Images</button>
+    <div class="container-wrapper">
+      <div id="smallContainer" class="stage-container"></div>
+      <div id="mediumContainer" class="stage-container"></div>
+      <div id="largeContainer" class="stage-container"></div>
+    </div>
+    <script>
+      const smallWidth = 185;
+      const smallHeight = 242;
+
+      const mediumWidth = 330;
+      const mediumHeight = 432;
+
+      const largeWidth = 692;
+      const largeHeight = 1024;
+
+      const maxHeight = largeHeight;
+
+      const smallStage = createStage("smallContainer", smallWidth, smallHeight);
+      const mediumStage = createStage(
+        "mediumContainer",
+        mediumWidth,
+        mediumHeight
+      );
+      const largeStage = createStage("largeContainer", largeWidth, largeHeight);
+
+      var image;
+
+      const containerWrapper = document.querySelector(".container-wrapper");
+
+      function createStage(containerId, width, height) {
+        const stage = new Konva.Stage({
+          container: containerId,
+          width: width,
+          height: height,
+        });
+
+        const layer = new Konva.Layer();
+        stage.add(layer);
+
+        return { stage, layer };
+      }
+
+      function loadImage() {
+        const imageInput = document.getElementById("imageInput");
+
+        var fReader = new FileReader();
+
+        if (imageInput.files.length === 0) {
+          alert("Please select an image.");
+          return;
+        }
+
+        // Make the Kimage
+        const kimage = new Konva.Image({ draggable: true, x: 0, y: 0 });
+
+        // Get the image URL
+        const imageUrl = URL.createObjectURL(imageInput.files[0]);
+
+        // Make an image
+        var theImage = new Image();
+        image = theImage;
+        theImage.src = imageUrl;
+
+        // Once the image is loaded, set the kimage
+        theImage.onload = function () {
+          largeStage.layer.destroyChildren();
+          mediumStage.layer.destroyChildren();
+          smallStage.layer.destroyChildren();
+
+          kimage.image(theImage);
+
+          const containerWidth = largeStage.stage.width();
+          const containerHeight = largeStage.stage.height();
+
+          const widthScale = containerWidth / theImage.width;
+          const heightScale = containerHeight / theImage.height;
+
+          if (widthScale > heightScale) {
+            // If the container is wider, match the width
+            kimage.width(containerWidth);
+            kimage.height(theImage.height * widthScale);
+          } else {
+            // If the container is taller or equal in height, match the height
+            kimage.width(theImage.width * heightScale);
+            kimage.height(containerHeight);
+          }
+
+          kimage.x((largeStage.stage.width() - kimage.width()) / 2);
+          kimage.y((largeStage.stage.height() - kimage.height()) / 2);
+
+          const li = kimage.clone();
+          largeStage.layer.add(li);
+
+          const mi = kimage.clone();
+          mediumStage.layer.add(mi);
+
+          const si = kimage.clone();
+          smallStage.layer.add(si);
+
+          // Draw the stages after adding the images
+          largeStage.layer.draw();
+          mediumStage.layer.draw();
+          smallStage.layer.draw();
+        };
+      }
+
+      async function saveImages() {
+        if (!image) {
+          console.warn(image);
+          alert("Please load an image first.");
+          return;
+        }
+
+        const zip = new JSZip();
+
+        async function addImageToZip(stage, size) {
+          const canvas = await new Promise((resolve) => {
+            stage.stage.toImage({
+              callback(img) {
+                const tempCanvas = document.createElement("canvas");
+                tempCanvas.width = img.width;
+                tempCanvas.height = img.height;
+                const context = tempCanvas.getContext("2d");
+                context.drawImage(img, 0, 0, img.width, img.height);
+                resolve(tempCanvas);
+              },
+            });
+          });
+
+          // Convert canvas data to a blob
+          return new Promise((resolve) => {
+            canvas.toBlob(
+              (blob) => {
+                resolve(blob);
+              },
+              "image/jpeg",
+              0.8
+            );
+          });
+        }
+
+        const smallBlob = await addImageToZip(smallStage, "small");
+        const mediumBlob = await addImageToZip(mediumStage, "medium");
+        const largeBlob = await addImageToZip(largeStage, "large");
+
+        zip.file(`Small.png`, smallBlob);
+        zip.file(`Medium.png`, mediumBlob);
+        zip.file(`Fulllength.png`, largeBlob);
+
+        zip.generateAsync({ type: "blob" }).then(function (content) {
+          saveAs(content, "images.zip");
+        });
+      }
+    </script>
+  </body>
+</html>
